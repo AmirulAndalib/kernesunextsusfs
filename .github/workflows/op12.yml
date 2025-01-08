@@ -22,8 +22,6 @@ jobs:
 
       - name: Setup Build Environment
         run: |
-      - name: Setup Build Environment
-        run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             python3-pip \
@@ -53,15 +51,6 @@ jobs:
         with:
           max-size: 2G
 
-      - name: Install Latest Pahole
-        run: |
-          sudo apt-get remove --purge -y dwarves
-          sudo apt-get install -y git build-essential libdw-dev zlib1g-dev
-          git clone --recurse-submodules https://git.kernel.org/pub/scm/devel/pahole/pahole.git
-          cd pahole
-          cmake .
-          sudo make install
-
       - name: Setup Python and Repo Tool
         run: |
           python3 -m pip install --upgrade pip
@@ -83,113 +72,67 @@ jobs:
       - name: Clone Required Repositories
         working-directory: builds/${{ env.ROOT_DIR }}
         run: |
-          git clone https://github.com/TheWildJames/AnyKernel3.git -b $BRANCH
+          git clone https://github.com/TheWildJames/AnyKernel3.git -b android14-5.15
           git clone https://gitlab.com/simonpunk/susfs4ksu.git -b gki-android14-6.1
           git clone https://github.com/TheWildJames/kernel_patches.git
 
       - name: Setup Kernel Source
         working-directory: builds/${{ env.ROOT_DIR }}
         run: |
-          mkdir -p kernel_platform/oneplus12_v
-          cd kernel_platform/oneplus12_v
-          repo init -u https://github.com/OnePlusOSS/kernel_manifest.git -b oneplus/sm8650 -m oneplus12_v.xml --depth=1
-          repo sync -c -j$(nproc --all) --force-sync --no-clone-bundle --no-tags
+          mkdir -p oneplus12_v
+          cd oneplus12_v
+          repo init -u https://github.com/OnePlusOSS/kernel_manifest.git -b oneplus/sm8650 -m oneplus12_v.xml
+          repo sync -j$(nproc)
           rm -rf ./kernel_platform/common/android/abi_gki_protected_exports_*
 
       - name: Setup KernelSU
-        working-directory: builds/${{ env.ROOT_DIR }}/kernel_platform/oneplus12_v/kernel_platform
+        working-directory: builds/${{ env.ROOT_DIR }}/oneplus12_v/kernel_platform
         run: |
-          curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next/kernel/setup.sh" | bash -s next
+          curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU/next/kernel/setup.sh" | bash -s next
           cd KernelSU-Next/kernel
           sed -i 's/ccflags-y += -DKSU_VERSION=16/ccflags-y += -DKSU_VERSION=12113/' ./Makefile
 
-      - name: Setup SUSFS
-        working-directory: builds/${{ env.ROOT_DIR }}/kernel_platform/oneplus12_v/kernel_platform
+      - name: Apply Kernel Patches
+        working-directory: builds/${{ env.ROOT_DIR }}/oneplus12_v/kernel_platform
         run: |
-          # Create necessary directories
-          mkdir -p ./common/fs
-          mkdir -p ./common/include/linux
-          
-          # Copy SUSFS files
-          cp ../../../susfs4ksu/kernel_patches/fs/susfs.c ./common/fs/
-          cp ../../../susfs4ksu/kernel_patches/include/linux/susfs.h ./common/include/linux/
-          cp ../../../susfs4ksu/kernel_patches/include/linux/susfs_def.h ./common/include/linux/
-          
-          # Copy patches
-          cp ../../../susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch ./KernelSU-Next/
-          cp ../../../susfs4ksu/kernel_patches/50_add_susfs_in_gki-android14-6.1.patch ./common/
-          cp ../../../kernel_patches/69_hide_stuff.patch ./common/
-          cp ../../../kernel_patches/selinux.c_fix.patch ./
-          cp ../../../kernel_patches/apk_sign.c_fix.patch ./
-          cp ../../../kernel_patches/Makefile_fix.patch ./
-          cp ../../../kernel_patches/core_hook.c_fix.patch ./
-          
-          # Apply patches
-          cd KernelSU-Next
-          patch -p1 < 10_enable_susfs_for_ksu.patch || true
-          
+          cp ../../susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch ./KernelSU-Next/
+          cp ../../susfs4ksu/kernel_patches/50_add_susfs_in_gki-android14-6.1.patch ./common/
+          cp ../../susfs4ksu/kernel_patches/fs/susfs.c ./common/fs/
+          cp ../../susfs4ksu/kernel_patches/include/linux/susfs.h ./common/include/linux/
+          cp ../../susfs4ksu/kernel_patches/fs/sus_su.c ./common/fs/
+          cp ../../susfs4ksu/kernel_patches/include/linux/sus_su.h ./common/include/linux/
+          cd ./KernelSU-Next/
           cd ../common
-          patch -p1 < 50_add_susfs_in_gki-android14-6.1.patch || true
-          patch -p1 -F 3 < 69_hide_stuff.patch || true
-          sed -i '/obj-$(CONFIG_KSU_SUSFS_SUS_SU) += sus_su.o/d' ./fs/Makefile
-          
-          cd ..
-          patch -p1 -F 3 < selinux.c_fix.patch || true
-          patch -p1 -F 3 < apk_sign.c_fix.patch || true
-          patch -p1 --fuzz=3 < Makefile_fix.patch || true
-          patch -p1 --fuzz=3 < core_hook.c_fix.patch || true
+          patch -p1 < 50_add_susfs_in_gki-android14-6.1.patch
 
       - name: Configure Kernel
-        working-directory: builds/${{ env.ROOT_DIR }}/kernel_platform/oneplus12_v/kernel_platform
+        working-directory: builds/${{ env.ROOT_DIR }}/oneplus12_v/kernel_platform
         run: |
-          # Basic KernelSU and SUSFS configs
           echo "CONFIG_KSU=y" >> ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_KSU_SUSFS=y" >> ./common/arch/arm64/configs/gki_defconfig
-          echo "CONFIG_KSU_SUSFS_SUS_SU=y" >> ./common/arch/arm64/configs/gki_defconfig
-          
-          # Additional SUSFS features
           echo "CONFIG_KSU_SUSFS_SUS_PATH=y" >> ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_KSU_SUSFS_SUS_MOUNT=y" >> ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_KSU_SUSFS_SUS_KSTAT=y" >> ./common/arch/arm64/configs/gki_defconfig
-          echo "CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_SUS_OVERLAYFS=y" >> ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_KSU_SUSFS_TRY_UMOUNT=y" >> ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_KSU_SUSFS_SPOOF_UNAME=y" >> ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_KSU_SUSFS_ENABLE_LOG=y" >> ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_KSU_SUSFS_OPEN_REDIRECT=y" >> ./common/arch/arm64/configs/gki_defconfig
-          
-          # Disable debug configs for production build
-          sed -i '/CONFIG_DEBUG_KERNEL/d' ./common/arch/arm64/configs/gki_defconfig
-          sed -i '/CONFIG_DEBUG_INFO/d' ./common/arch/arm64/configs/gki_defconfig
-          sed -i '/CONFIG_DEBUG_INFO_REDUCED/d' ./common/arch/arm64/configs/gki_defconfig
-          sed -i '/CONFIG_DEBUG_FS/d' ./common/arch/arm64/configs/gki_defconfig
-          sed -i '/CONFIG_DEBUG_SECTION_MISMATCH/d' ./common/arch/arm64/configs/gki_defconfig
-          
-          # Remove defconfig check
+          echo "CONFIG_KSU_SUSFS_SUS_SU=y" >> ./common/arch/arm64/configs/gki_defconfig
           sed -i '2s/check_defconfig//' ./common/build.config.gki
 
       - name: Build Kernel
-        working-directory: builds/${{ env.ROOT_DIR }}/kernel_platform/oneplus12_v/kernel_platform
+        working-directory: builds/${{ env.ROOT_DIR }}/oneplus12_v/kernel_platform
         run: |
-          export PATH="/usr/lib/ccache:$PATH"
-          # Modified build command with correct syntax
-          ./build_with_bazel.py \
-            -t pineapple \
-            gki \
-            --jobs=$(nproc --all) \
-            --verbose_failures \
-            --config=stamp \
-            --user_kmi_symbol_lists=//msm-kernel:android/abi_gki_aarch64_qcom \
-            --ignore_missing_projects \
-            //msm-kernel:pineapple_gki_dist \
-            //msm-kernel:pineapple_gki_dtc_dist
+          ./oplus/build/oplus_build_kernel.sh pineapple gki
 
       - name: Package Kernel
         working-directory: builds/${{ env.ROOT_DIR }}
         run: |
-          cp kernel_platform/oneplus12_v/kernel_platform/out/dist/Image AnyKernel3/Image
+          cp oneplus12_v/kernel_platform/out/dist/Image AnyKernel3/Image
           cd AnyKernel3
-          ZIP_NAME="Anykernel3-OP-A15-${BRANCH}-KernelSU-SUSFS-$(date +'%Y-%m-%d-%H-%M-%S').zip"
-          zip -r9 "../$ZIP_NAME" ./*
+          ZIP_NAME="Anykernel3-OP-A15-android14-6.1-KernelSU-SUSFS-$(date +'%Y-%m-%d-%H-%M-%S').zip"
+          zip -r "../$ZIP_NAME" ./*
           echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
 
       - name: Create Release
@@ -199,7 +142,7 @@ jobs:
         with:
           files: ./builds/${{ env.ROOT_DIR }}/${{ env.ZIP_NAME }}
           tag_name: "v$(date +'%Y.%m.%d-%H%M%S')"
-          name: "OP12 A15 ${{ env.BRANCH }} With KernelSU & SUSFS"
+          name: "OP12 A15 android14-6.1 With KernelSU & SUSFS"
           body: |
             OnePlus 12 Kernel Release
             - Based on Android 14 (6.1)
@@ -215,7 +158,4 @@ jobs:
         if: always()
         with:
           name: build-logs
-          path: |
-            builds/${{ env.ROOT_DIR }}/kernel_platform/oneplus12_v/kernel_platform/out/*.log
-            builds/${{ env.ROOT_DIR }}/kernel_platform/oneplus12_v/kernel_platform/**/*.rej
-          retention-days: 5
+          path: builds/${{ env.ROOT_DIR }}/oneplus12_v/kernel_platform/out/logs
