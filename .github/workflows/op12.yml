@@ -21,7 +21,6 @@ env:
 jobs:
   build-release:
     runs-on: ubuntu-latest
-    # Use high-performance runners
     timeout-minutes: 360
 
     steps:
@@ -127,6 +126,15 @@ jobs:
           repo init -u https://github.com/OnePlusOSS/kernel_manifest.git -b oneplus/sm8650 -m oneplus12_v.xml --depth=1
           repo sync -j$(nproc) --force-sync --no-clone-bundle --no-tags --optimized-fetch --prune
           rm -rf ./kernel_platform/common/android/abi_gki_protected_exports_*
+          # Setup directories
+          mkdir -p out
+          mkdir -p LOGDIR
+          mkdir -p kernel_platform/LOGDIR
+          
+          # Setup environment variables
+          echo "KERNEL_DIR=$(pwd)" >> $GITHUB_ENV
+          echo "OUT_DIR=$(pwd)/out" >> $GITHUB_ENV
+          echo "LOGDIR=$(pwd)/LOGDIR" >> $GITHUB_ENV
 
       - name: Setup KernelSU and Apply Patches
         working-directory: builds/${{ env.ROOT_DIR }}/oneplus12_v/kernel_platform
@@ -167,29 +175,60 @@ jobs:
       - name: Configure Kernel
         working-directory: builds/${{ env.ROOT_DIR }}/oneplus12_v/kernel_platform
         run: |
-          # Add all configs in parallel using GNU Parallel
-          parallel echo "{}" >> ./common/arch/arm64/configs/gki_defconfig ::: \
-            "CONFIG_KSU=y" \
-            "CONFIG_KSU_SUSFS=y" \
-            "CONFIG_KSU_SUSFS_SUS_PATH=y" \
-            "CONFIG_KSU_SUSFS_SUS_MOUNT=y" \
-            "CONFIG_KSU_SUSFS_SUS_KSTAT=y" \
-            "CONFIG_KSU_SUSFS_SUS_OVERLAYFS=y" \
-            "CONFIG_KSU_SUSFS_TRY_UMOUNT=y" \
-            "CONFIG_KSU_SUSFS_SPOOF_UNAME=y" \
-            "CONFIG_KSU_SUSFS_ENABLE_LOG=y" \
-            "CONFIG_KSU_SUSFS_OPEN_REDIRECT=y" \
-            "CONFIG_KSU_SUSFS_SUS_SU=y"
+          echo "CONFIG_KSU=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_SUS_PATH=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_SUS_MOUNT=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_SUS_KSTAT=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_SUS_OVERLAYFS=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_TRY_UMOUNT=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_SPOOF_UNAME=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_ENABLE_LOG=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_OPEN_REDIRECT=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_SUS_SU=y" >> ./common/arch/arm64/configs/gki_defconfig
           
           sed -i '2s/check_defconfig//' ./common/build.config.gki
 
       - name: Build Kernel
-        working-directory: builds/${{ env.ROOT_DIR }}/oneplus12_v/kernel_platform
+        working-directory: builds/${{ env.ROOT_DIR }}/oneplus12_v
         run: |
+          # Setup environment
           export PATH="/usr/lib/ccache:$PATH"
+          export KERNEL_DIR=$(pwd)
+          export OUT_DIR=$(pwd)/out
+          export LOGDIR=$(pwd)/LOGDIR
           export KBUILD_BUILD_USER="GitHubActions"
           export KBUILD_BUILD_HOST="GitHub"
           export KBUILD_BUILD_VERSION="1"
+          
+          # Create build environment function if not defined
+          cat > build_functions.sh << 'EOF'
+          init_build_environment() {
+            echo "Setting up build environment..."
+            return 0
+          }
+          
+          build_start_time() {
+            echo "Build started at $(date)"
+            return 0
+          }
+          
+          build_end_time() {
+            echo "Build completed at $(date)"
+            return 0
+          }
+          EOF
+          
+          # Source the functions
+          source build_functions.sh
+          
+          # Try to source OnePlus setup if it exists
+          if [ -f "kernel_platform/oplus/build/oplus_setup.sh" ]; then
+            source kernel_platform/oplus/build/oplus_setup.sh
+          fi
+          
+          # Run the build script
+          cd kernel_platform
           ./oplus/build/oplus_build_kernel.sh pineapple gki -j$(nproc --all)
 
       - name: Package Kernel
@@ -232,5 +271,6 @@ jobs:
           path: |
             builds/${{ env.ROOT_DIR }}/oneplus12_v/kernel_platform/out/logs
             builds/${{ env.ROOT_DIR }}/oneplus12_v/kernel_platform/.config
+            builds/${{ env.ROOT_DIR }}/oneplus12_v/LOGDIR
           compression-level: 9
           retention-days: 14
