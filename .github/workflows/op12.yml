@@ -229,7 +229,7 @@ jobs:
           
           # Run the build script
           cd kernel_platform
-          ./oplus/build/oplus_build_kernel.sh pineapple gki -j$(nproc --all)
+          ./oplus/build/oplus_build_kernel.sh -t pineapple gki -j$(nproc --all)
 
       - name: Package Kernel
         working-directory: builds/${{ env.ROOT_DIR }}
