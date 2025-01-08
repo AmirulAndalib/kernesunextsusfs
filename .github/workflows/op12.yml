@@ -189,6 +189,61 @@ jobs:
           
           sed -i '2s/check_defconfig//' ./common/build.config.gki
 
+      - name: Edit oplus_build_kernel.sh Script
+        working-directory: builds/${{ env.ROOT_DIR }}
+        run: |
+          # Define the script path
+          FILE_PATH="kernel_platform/oplus/build/oplus_build_kernel.sh"
+
+          # Add debugging and fix script
+          cat > $FILE_PATH << 'EOF'
+          #!/bin/bash
+
+          # Debugging enabled
+          set -e
+          set -x
+
+          # Log inputs for debugging
+          echo "Platform argument: $1"
+          echo "Build type argument: $2"
+
+          # Source setup script with passed arguments
+          if ! source kernel_platform/oplus/build/oplus_setup.sh "$1" "$2"; then
+              echo "Failed to source setup script with arguments: $1, $2"
+              exit 1
+          fi
+
+          # Debug the environment setup
+          echo "Environment variables:"
+          env | grep 'variants'
+
+          # Initialize build environment
+          if ! init_build_environment; then
+              echo "Build environment setup failed"
+              exit 1
+          fi
+
+          # Define the build command
+          function build_kernel_cmd() {
+              build_start_time
+
+              # Check build variant type
+              if [ "${variants_type}" == "consolidate" ]; then
+                  LTO=thin ./kernel_platform/build/android/prepare_vendor.sh "$variants_platform" "$variants_type" 2>&1 | tee ${TOPDIR}/LOGDIR/build_$(date +"%Y_%m_%d_%H_%M_%S").log
+              else
+                  ./kernel_platform/build/android/prepare_vendor.sh "$variants_platform" "$variants_type" 2>&1 | tee ${TOPDIR}/LOGDIR/build_$(date +"%Y_%m_%d_%H_%M_%S").log
+              fi
+
+              build_end_time
+          }
+
+          # Execute the build command
+          build_kernel_cmd
+          EOF
+
+          # Make the script executable
+          chmod +x $FILE_PATH
+
       - name: Build Kernel
         working-directory: builds/${{ env.ROOT_DIR }}/oneplus12_v
         run: |
